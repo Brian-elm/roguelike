@@ -7,11 +7,14 @@ import pygame
 import random
 import sys
 import math
+import json
+import os
 from typing import Optional, List, Tuple
 from abc import ABC, abstractmethod
 
 # Initialisation de Pygame
 pygame.init()
+pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
 
 # Constantes de l'écran
 SCREEN_WIDTH = 1200
@@ -46,17 +49,144 @@ POURCENTAGE_SOIN = 0.15
 BONUS_ATTAQUE_MIN = 3
 BONUS_ATTAQUE_MAX = 8
 
+# Système de score
+SCORE_ENNEMI = 100
+SCORE_BOSS = 500
+SCORE_SALLE = 50
+SCORE_SURVIE = 10  # Par tour de survie
+
 # Probabilités des types de salles (plus équilibrées)
 PROBABILITES_SALLES = {
-    'ennemi': 0.6,      # 60% de chance d'avoir un ennemi
+    'ennemi': 0.5,      # 50% de chance d'avoir un ennemi
     'boss': 0.2,        # 20% de chance d'avoir un boss
     'soin': 0.1,        # 10% de chance d'avoir du soin
-    'amelioration': 0.1  # 10% de chance d'avoir une amélioration
+    'amelioration': 0.1,  # 10% de chance d'avoir une amélioration
+    'powerup': 0.1      # 10% de chance d'avoir un power-up
 }
 
 # Noms des personnages
 NOMS_ENNEMIS = ["Gobelin", "Orc", "Squelette", "Loup", "Araignée"]
 NOMS_BOSS = ["Dragon", "Liche", "Démon", "Géant", "Hydre"]
+
+class SoundManager:
+    """Gestionnaire de sons et effets audio"""
+    
+    def __init__(self):
+        self.sounds = {}
+        self.music_volume = 0.3
+        self.sfx_volume = 0.5
+        self.create_synthetic_sounds()
+    
+    def create_synthetic_sounds(self):
+        """Crée des sons synthétiques pour le jeu"""
+        # Son d'attaque
+        attack_sound = self.create_tone(440, 0.1, 'square')
+        self.sounds['attack'] = attack_sound
+        
+        # Son de victoire
+        victory_sound = self.create_victory_melody()
+        self.sounds['victory'] = victory_sound
+        
+        # Son de défaite
+        defeat_sound = self.create_tone(220, 0.5, 'sine')
+        self.sounds['defeat'] = defeat_sound
+        
+        # Son de soin
+        heal_sound = self.create_tone(660, 0.2, 'sine')
+        self.sounds['heal'] = heal_sound
+        
+        # Son d'amélioration
+        upgrade_sound = self.create_tone(880, 0.15, 'square')
+        self.sounds['upgrade'] = upgrade_sound
+        
+        # Son de clic
+        click_sound = self.create_tone(800, 0.05, 'square')
+        self.sounds['click'] = click_sound
+    
+    def create_tone(self, frequency, duration, wave_type='sine'):
+        """Crée un son synthétique"""
+        sample_rate = 22050
+        frames = int(duration * sample_rate)
+        arr = []
+        
+        for i in range(frames):
+            time = float(i) / sample_rate
+            
+            if wave_type == 'sine':
+                sample = int(32767 * math.sin(2 * math.pi * frequency * time))
+            elif wave_type == 'square':
+                sample = 32767 if (int(frequency * time) % 2) else -32767
+            elif wave_type == 'sawtooth':
+                sample = int(32767 * (2 * (frequency * time - int(frequency * time)) - 1))
+            else:
+                sample = 0
+            
+            # Envelope pour éviter les clics
+            envelope = 1.0
+            if i < frames * 0.1:  # Attack
+                envelope = i / (frames * 0.1)
+            elif i > frames * 0.9:  # Release
+                envelope = (frames - i) / (frames * 0.1)
+            
+            sample = int(sample * envelope)
+            arr.append([sample, sample])
+        
+        # Créer le son avec numpy si disponible, sinon utiliser une méthode alternative
+        try:
+            import numpy as np
+            sound_array = np.array(arr, dtype=np.int16)
+            sound = pygame.sndarray.make_sound(sound_array)
+        except ImportError:
+            # Méthode alternative sans numpy
+            sound = pygame.sndarray.make_sound(pygame.array.array('h', arr))
+        sound.set_volume(self.sfx_volume)
+        return sound
+    
+    def create_victory_melody(self):
+        """Crée une mélodie de victoire"""
+        notes = [523, 659, 784, 1047]  # C, E, G, C (octave supérieure)
+        duration = 0.2
+        sample_rate = 22050
+        total_frames = int(len(notes) * duration * sample_rate)
+        arr = []
+        
+        for note_idx, frequency in enumerate(notes):
+            note_frames = int(duration * sample_rate)
+            for i in range(note_frames):
+                time = float(i) / sample_rate
+                sample = int(32767 * 0.3 * math.sin(2 * math.pi * frequency * time))
+                
+                # Envelope
+                envelope = 1.0
+                if i < note_frames * 0.1:
+                    envelope = i / (note_frames * 0.1)
+                elif i > note_frames * 0.8:
+                    envelope = (note_frames - i) / (note_frames * 0.2)
+                
+                sample = int(sample * envelope)
+                arr.append([sample, sample])
+        
+        # Créer le son avec numpy si disponible, sinon utiliser une méthode alternative
+        try:
+            import numpy as np
+            sound_array = np.array(arr, dtype=np.int16)
+            sound = pygame.sndarray.make_sound(sound_array)
+        except ImportError:
+            # Méthode alternative sans numpy
+            sound = pygame.sndarray.make_sound(pygame.array.array('h', arr))
+        sound.set_volume(self.sfx_volume)
+        return sound
+    
+    def play_sound(self, sound_name):
+        """Joue un son"""
+        if sound_name in self.sounds:
+            self.sounds[sound_name].play()
+    
+    def set_volume(self, volume):
+        """Définit le volume des effets sonores"""
+        self.sfx_volume = volume
+        for sound in self.sounds.values():
+            sound.set_volume(volume)
 
 class Personnage:
     """Classe de base pour tous les personnages (joueur, ennemis, boss)"""
@@ -95,25 +225,153 @@ class Joueur(Personnage):
         super().__init__(nom, JOUEUR_PV_MAX, JOUEUR_ATTAQUE)
         self.ennemis_tues = 0
         self.boss_vaincus = 0
+        self.score = 0
+        self.tours_survies = 0
+        self.power_ups = []  # Liste des power-ups actifs
     
     def augmenter_attaque(self, bonus: int):
         """Augmente l'attaque du joueur"""
         self.attaque += bonus
         print(f"Votre attaque augmente de {bonus}! Nouvelle attaque: {self.attaque}")
+    
+    def ajouter_score(self, points: int):
+        """Ajoute des points au score"""
+        self.score += points
+    
+    def tuer_ennemi(self):
+        """Marque un ennemi comme tué et ajoute le score"""
+        self.ennemis_tues += 1
+        self.ajouter_score(SCORE_ENNEMI)
+    
+    def vaincre_boss(self):
+        """Marque un boss comme vaincu et ajoute le score"""
+        self.boss_vaincus += 1
+        self.ajouter_score(SCORE_BOSS)
+    
+    def survivre_tour(self):
+        """Ajoute des points de survie"""
+        self.tours_survies += 1
+        self.ajouter_score(SCORE_SURVIE)
+    
+    def traverser_salle(self):
+        """Ajoute des points pour traverser une salle"""
+        self.ajouter_score(SCORE_SALLE)
+
+class PowerUp:
+    """Classe pour les power-ups et objets spéciaux"""
+    
+    def __init__(self, nom: str, effet: str, duree: int = 0, valeur: int = 0):
+        self.nom = nom
+        self.effet = effet  # 'attaque', 'defense', 'vitesse', 'regeneration'
+        self.duree = duree  # 0 = permanent
+        self.valeur = valeur
+        self.temps_restant = duree
+    
+    def appliquer(self, joueur: Joueur):
+        """Applique l'effet du power-up au joueur"""
+        if self.effet == 'attaque':
+            joueur.attaque += self.valeur
+        elif self.effet == 'defense':
+            # Réduit les dégâts reçus
+            joueur.defense = getattr(joueur, 'defense', 0) + self.valeur
+        elif self.effet == 'regeneration':
+            # Soigne le joueur
+            joueur.soigner(self.valeur)
+        elif self.effet == 'vitesse':
+            # Réduit le temps entre les attaques
+            joueur.vitesse = getattr(joueur, 'vitesse', 1) + self.valeur
+    
+    def retirer(self, joueur: Joueur):
+        """Retire l'effet du power-up du joueur"""
+        if self.effet == 'attaque':
+            joueur.attaque -= self.valeur
+        elif self.effet == 'defense':
+            joueur.defense = getattr(joueur, 'defense', 0) - self.valeur
+        elif self.effet == 'vitesse':
+            joueur.vitesse = getattr(joueur, 'vitesse', 1) - self.valeur
+    
+    def update(self, dt: int):
+        """Met à jour le power-up"""
+        if self.duree > 0:
+            self.temps_restant -= dt
+            return self.temps_restant > 0
+        return True
+
+class ScoreManager:
+    """Gestionnaire des scores et high scores"""
+    
+    def __init__(self):
+        self.high_scores_file = "high_scores.json"
+        self.high_scores = self.charger_high_scores()
+    
+    def charger_high_scores(self) -> List[dict]:
+        """Charge les high scores depuis le fichier"""
+        try:
+            if os.path.exists(self.high_scores_file):
+                with open(self.high_scores_file, 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return []
+    
+    def sauvegarder_high_scores(self):
+        """Sauvegarde les high scores dans le fichier"""
+        try:
+            with open(self.high_scores_file, 'w') as f:
+                json.dump(self.high_scores, f, indent=2)
+        except:
+            pass
+    
+    def ajouter_score(self, nom: str, score: int, salles: int, ennemis: int, boss: int):
+        """Ajoute un nouveau score"""
+        nouveau_score = {
+            'nom': nom,
+            'score': score,
+            'salles': salles,
+            'ennemis': ennemis,
+            'boss': boss,
+            'date': pygame.time.get_ticks() // 1000  # Timestamp
+        }
+        
+        self.high_scores.append(nouveau_score)
+        self.high_scores.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Garder seulement les 10 meilleurs scores
+        if len(self.high_scores) > 10:
+            self.high_scores = self.high_scores[:10]
+        
+        self.sauvegarder_high_scores()
+        return nouveau_score in self.high_scores[:10]  # True si c'est un high score
+    
+    def est_high_score(self, score: int) -> bool:
+        """Vérifie si un score est un high score"""
+        if len(self.high_scores) < 10:
+            return True
+        return score > self.high_scores[-1]['score']
+    
+    def get_top_scores(self, limit: int = 5) -> List[dict]:
+        """Retourne les meilleurs scores"""
+        return self.high_scores[:limit]
 
 class Ennemi(Personnage):
     """Classe représentant un ennemi normal"""
     
-    def __init__(self):
+    def __init__(self, difficulte: int = 1):
         nom = random.choice(NOMS_ENNEMIS)
-        super().__init__(nom, ENNEMI_PV_MAX, ENNEMI_ATTAQUE)
+        # Ajuster les stats selon la difficulté
+        pv = int(ENNEMI_PV_MAX * (1 + (difficulte - 1) * 0.5))
+        attaque = int(ENNEMI_ATTAQUE * (1 + (difficulte - 1) * 0.3))
+        super().__init__(nom, pv, attaque)
 
 class Boss(Personnage):
     """Classe représentant un boss (ennemi puissant)"""
     
-    def __init__(self):
+    def __init__(self, difficulte: int = 1):
         nom = random.choice(NOMS_BOSS)
-        super().__init__(nom, BOSS_PV_MAX, BOSS_ATTAQUE)
+        # Ajuster les stats selon la difficulté
+        pv = int(BOSS_PV_MAX * (1 + (difficulte - 1) * 0.7))
+        attaque = int(BOSS_ATTAQUE * (1 + (difficulte - 1) * 0.5))
+        super().__init__(nom, pv, attaque)
 
 class Salle(ABC):
     """Classe abstraite pour tous les types de salles"""
@@ -132,9 +390,9 @@ class Salle(ABC):
 class SalleEnnemi(Salle):
     """Salle contenant un ennemi normal"""
     
-    def __init__(self):
+    def __init__(self, difficulte: int = 1):
         super().__init__("Salle d'Ennemi")
-        self.ennemi = Ennemi()
+        self.ennemi = Ennemi(difficulte)
     
     def entrer(self, joueur: Joueur) -> bool:
         print(f"\n=== {self.nom} ===")
@@ -165,9 +423,9 @@ class SalleEnnemi(Salle):
 class SalleBoss(Salle):
     """Salle contenant un boss"""
     
-    def __init__(self):
+    def __init__(self, difficulte: int = 1):
         super().__init__("Salle de Boss")
-        self.boss = Boss()
+        self.boss = Boss(difficulte)
     
     def entrer(self, joueur: Joueur) -> bool:
         print(f"\n=== {self.nom} ===")
@@ -221,11 +479,40 @@ class SalleAmelioration(Salle):
         joueur.augmenter_attaque(bonus)
         return True
 
+class SallePowerUp(Salle):
+    """Salle contenant un power-up"""
+    
+    def __init__(self):
+        super().__init__("Salle de Power-Up")
+        self.power_up = self.generer_power_up()
+    
+    def generer_power_up(self) -> PowerUp:
+        """Génère un power-up aléatoire"""
+        power_ups = [
+            PowerUp("Potion de Force", "attaque", 0, random.randint(5, 15)),
+            PowerUp("Armure Magique", "defense", 0, random.randint(3, 8)),
+            PowerUp("Potion de Soin", "regeneration", 0, random.randint(20, 40)),
+            PowerUp("Bottes de Vitesse", "vitesse", 0, 1)
+        ]
+        return random.choice(power_ups)
+    
+    def entrer(self, joueur: Joueur) -> bool:
+        print(f"\n=== {self.nom} ===")
+        print(f"Vous trouvez: {self.power_up.nom}!")
+        print(f"Effet: +{self.power_up.valeur} {self.power_up.effet}")
+        
+        self.power_up.appliquer(joueur)
+        joueur.power_ups.append(self.power_up)
+        joueur.ajouter_score(200)  # Bonus pour trouver un power-up
+        
+        return True
+
 class GenerateurSalles:
     """Générateur de salles aléatoires basé sur les probabilités"""
     
-    def __init__(self):
+    def __init__(self, difficulte: int = 1):
         self.derniere_salle_speciale = False
+        self.difficulte = difficulte
     
     def generer_salle(self) -> Salle:
         """Génère une salle aléatoire selon les probabilités définies"""
@@ -247,29 +534,34 @@ class GenerateurSalles:
             if rand <= cumul:
                 if type_salle == 'ennemi':
                     self.derniere_salle_speciale = False
-                    return SalleEnnemi()
+                    return SalleEnnemi(self.difficulte)
                 elif type_salle == 'boss':
                     self.derniere_salle_speciale = False
-                    return SalleBoss()
+                    return SalleBoss(self.difficulte)
                 elif type_salle == 'soin':
                     self.derniere_salle_speciale = True
                     return SalleSoin()
                 elif type_salle == 'amelioration':
                     self.derniere_salle_speciale = True
                     return SalleAmelioration()
+                elif type_salle == 'powerup':
+                    self.derniere_salle_speciale = True
+                    return SallePowerUp()
         
         # Par défaut, retourner une salle d'ennemi
         self.derniere_salle_speciale = False
-        return SalleEnnemi()
+        return SalleEnnemi(self.difficulte)
 
 class Jeu:
     """Classe principale du jeu"""
     
-    def __init__(self):
+    def __init__(self, difficulte: int = 1):
         self.joueur = Joueur()
         self.salle_actuelle = 0
         self.salles_max = NOMBRE_SALLES
-        self.generateur_salles = GenerateurSalles()
+        self.difficulte = difficulte
+        self.generateur_salles = GenerateurSalles(difficulte)
+        self.score_manager = ScoreManager()
     
     def afficher_statistiques(self):
         """Affiche les statistiques de fin de partie"""
@@ -545,89 +837,298 @@ class HealthBar:
         screen.blit(text_surface, text_rect)
 
 class IconDrawer:
-    """Classe pour dessiner des icônes visuelles avec des formes géométriques"""
+    """Classe pour dessiner des icônes visuelles avec des formes géométriques améliorées"""
     
     @staticmethod
     def draw_heart(screen, x, y, size, color):
-        """Dessine un cœur"""
-        # Cœur simplifié avec des cercles et un triangle
+        """Dessine un cœur avec dégradé et ombre"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.circle(screen, (50, 0, 0), (x - size//4 + shadow_offset, y - size//4 + shadow_offset), size//4)
+        pygame.draw.circle(screen, (50, 0, 0), (x + size//4 + shadow_offset, y - size//4 + shadow_offset), size//4)
+        shadow_points = [(x + shadow_offset, y + size//2 + shadow_offset), 
+                        (x - size//2 + shadow_offset, y + shadow_offset), 
+                        (x + size//2 + shadow_offset, y + shadow_offset)]
+        pygame.draw.polygon(screen, (50, 0, 0), shadow_points)
+        
+        # Cœur principal avec dégradé
         pygame.draw.circle(screen, color, (x - size//4, y - size//4), size//4)
         pygame.draw.circle(screen, color, (x + size//4, y - size//4), size//4)
         points = [(x, y + size//2), (x - size//2, y), (x + size//2, y)]
         pygame.draw.polygon(screen, color, points)
+        
+        # Reflet
+        pygame.draw.circle(screen, (255, 200, 200), (x - size//6, y - size//3), size//8)
+        pygame.draw.circle(screen, (255, 200, 200), (x + size//6, y - size//3), size//8)
     
     @staticmethod
     def draw_sword(screen, x, y, size, color):
-        """Dessine une épée"""
-        # Lame
-        pygame.draw.rect(screen, color, (x - size//8, y - size//2, size//4, size))
+        """Dessine une épée avec détails"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//8 + shadow_offset, y - size//2 + shadow_offset, size//4, size))
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//3 + shadow_offset, y - size//8 + shadow_offset, size*2//3, size//4))
+        
+        # Lame avec dégradé
+        pygame.draw.rect(screen, (200, 200, 255), (x - size//8, y - size//2, size//4, size))
+        pygame.draw.rect(screen, (150, 150, 255), (x - size//8, y - size//2, size//4, size//2))
+        
         # Garde
-        pygame.draw.rect(screen, color, (x - size//3, y - size//8, size*2//3, size//4))
+        pygame.draw.rect(screen, (139, 69, 19), (x - size//3, y - size//8, size*2//3, size//4))
+        pygame.draw.rect(screen, (160, 82, 45), (x - size//4, y - size//10, size//2, size//6))
+        
         # Pommeau
-        pygame.draw.circle(screen, color, (x, y + size//2 + size//8), size//6)
+        pygame.draw.circle(screen, (139, 69, 19), (x, y + size//2 + size//8), size//6)
+        pygame.draw.circle(screen, (160, 82, 45), (x, y + size//2 + size//8), size//8)
     
     @staticmethod
     def draw_shield(screen, x, y, size, color):
-        """Dessine un bouclier"""
+        """Dessine un bouclier avec motif"""
+        # Ombre
+        shadow_offset = 2
+        shadow_points = [(x + shadow_offset, y - size//2 + shadow_offset), 
+                        (x - size//2 + shadow_offset, y - size//4 + shadow_offset), 
+                        (x - size//2 + shadow_offset, y + size//4 + shadow_offset), 
+                        (x + shadow_offset, y + size//2 + shadow_offset), 
+                        (x + size//2 + shadow_offset, y + size//4 + shadow_offset), 
+                        (x + size//2 + shadow_offset, y - size//4 + shadow_offset)]
+        pygame.draw.polygon(screen, (30, 30, 30), shadow_points)
+        
+        # Bouclier principal
         points = [(x, y - size//2), (x - size//2, y - size//4), (x - size//2, y + size//4), 
                  (x, y + size//2), (x + size//2, y + size//4), (x + size//2, y - size//4)]
         pygame.draw.polygon(screen, color, points)
-        pygame.draw.polygon(screen, WHITE, points, 2)
+        
+        # Bordure
+        pygame.draw.polygon(screen, (255, 215, 0), points, 3)
+        
+        # Motif central
+        pygame.draw.circle(screen, (255, 215, 0), (x, y), size//4)
+        pygame.draw.circle(screen, (255, 255, 255), (x, y), size//6)
     
     @staticmethod
     def draw_crown(screen, x, y, size, color):
-        """Dessine une couronne"""
+        """Dessine une couronne avec joyaux"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//2 + shadow_offset, y + shadow_offset, size, size//3))
+        
         # Base de la couronne
         pygame.draw.rect(screen, color, (x - size//2, y, size, size//3))
-        # Pointes
+        pygame.draw.rect(screen, (255, 215, 0), (x - size//2, y, size, size//3), 2)
+        
+        # Pointes avec joyaux
         for i in range(3):
             px = x - size//3 + i * size//3
+            # Ombre de la pointe
+            shadow_points = [(px + shadow_offset, y + shadow_offset), 
+                           (px - size//6 + shadow_offset, y - size//3 + shadow_offset), 
+                           (px + size//6 + shadow_offset, y - size//3 + shadow_offset)]
+            pygame.draw.polygon(screen, (30, 30, 30), shadow_points)
+            
+            # Pointe
             points = [(px, y), (px - size//6, y - size//3), (px + size//6, y - size//3)]
             pygame.draw.polygon(screen, color, points)
+            
+            # Joyau
+            pygame.draw.circle(screen, (255, 0, 0), (px, y - size//4), size//12)
+            pygame.draw.circle(screen, (255, 255, 255), (px, y - size//4), size//16)
     
     @staticmethod
     def draw_skull(screen, x, y, size, color):
-        """Dessine un crâne"""
+        """Dessine un crâne avec détails"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.circle(screen, (20, 20, 20), (x + shadow_offset, y + shadow_offset), size//2)
+        
         # Tête
         pygame.draw.circle(screen, color, (x, y), size//2)
-        # Yeux
-        pygame.draw.circle(screen, WHITE, (x - size//6, y - size//6), size//8)
-        pygame.draw.circle(screen, WHITE, (x + size//6, y - size//6), size//8)
+        pygame.draw.circle(screen, (200, 200, 200), (x, y), size//2, 2)
+        
+        # Yeux avec reflet
+        pygame.draw.circle(screen, (255, 0, 0), (x - size//6, y - size//6), size//8)
+        pygame.draw.circle(screen, (255, 0, 0), (x + size//6, y - size//6), size//8)
+        pygame.draw.circle(screen, (255, 255, 255), (x - size//8, y - size//8), size//12)
+        pygame.draw.circle(screen, (255, 255, 255), (x + size//8, y - size//8), size//12)
+        
         # Bouche
-        pygame.draw.rect(screen, WHITE, (x - size//4, y + size//6, size//2, size//8))
+        pygame.draw.rect(screen, (0, 0, 0), (x - size//4, y + size//6, size//2, size//8))
+        # Dents
+        for i in range(3):
+            tooth_x = x - size//6 + i * size//6
+            pygame.draw.rect(screen, (255, 255, 255), (tooth_x, y + size//6, size//12, size//12))
     
     @staticmethod
     def draw_plus(screen, x, y, size, color):
-        """Dessine un plus"""
+        """Dessine un plus avec effet de brillance"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//8 + shadow_offset, y - size//2 + shadow_offset, size//4, size))
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//2 + shadow_offset, y - size//8 + shadow_offset, size, size//4))
+        
+        # Plus principal
         pygame.draw.rect(screen, color, (x - size//8, y - size//2, size//4, size))
         pygame.draw.rect(screen, color, (x - size//2, y - size//8, size, size//4))
+        
+        # Reflet
+        pygame.draw.rect(screen, (255, 255, 255), (x - size//12, y - size//2, size//6, size//3))
+        pygame.draw.rect(screen, (255, 255, 255), (x - size//2, y - size//12, size//3, size//6))
     
     @staticmethod
     def draw_exclamation(screen, x, y, size, color):
-        """Dessine un point d'exclamation"""
+        """Dessine un point d'exclamation avec effet"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//8 + shadow_offset, y - size//2 + shadow_offset, size//4, size*3//4))
+        pygame.draw.circle(screen, (30, 30, 30), (x + shadow_offset, y + size//3 + shadow_offset), size//8)
+        
+        # Barre principale
         pygame.draw.rect(screen, color, (x - size//8, y - size//2, size//4, size*3//4))
+        pygame.draw.rect(screen, (255, 255, 255), (x - size//12, y - size//2, size//6, size//3))
+        
+        # Point
         pygame.draw.circle(screen, color, (x, y + size//3), size//8)
+        pygame.draw.circle(screen, (255, 255, 255), (x, y + size//3), size//12)
     
     @staticmethod
     def draw_castle(screen, x, y, size, color):
-        """Dessine un château"""
+        """Dessine un château avec détails"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//2 + shadow_offset, y + shadow_offset, size, size//2))
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//2 + shadow_offset, y - size//2 + shadow_offset, size//3, size//2))
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//6 + shadow_offset, y - size//2 + shadow_offset, size//3, size//2))
+        pygame.draw.rect(screen, (30, 30, 30), (x + size//6 + shadow_offset, y - size//2 + shadow_offset, size//3, size//2))
+        
         # Base
         pygame.draw.rect(screen, color, (x - size//2, y, size, size//2))
+        pygame.draw.rect(screen, (139, 69, 19), (x - size//2, y, size, size//2), 2)
+        
         # Tours
         pygame.draw.rect(screen, color, (x - size//2, y - size//2, size//3, size//2))
         pygame.draw.rect(screen, color, (x - size//6, y - size//2, size//3, size//2))
         pygame.draw.rect(screen, color, (x + size//6, y - size//2, size//3, size//2))
+        
+        # Drapeaux
+        for i, px in enumerate([x - size//3, x, x + size//3]):
+            flag_color = [(255, 0, 0), (0, 255, 0), (0, 0, 255)][i]
+            pygame.draw.polygon(screen, flag_color, [(px, y - size//2), (px + size//8, y - size//3), (px, y - size//4)])
     
     @staticmethod
     def draw_trophy(screen, x, y, size, color):
-        """Dessine un trophée"""
+        """Dessine un trophée avec brillance"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.rect(screen, (30, 30, 30), (x - size//4 + shadow_offset, y + size//4 + shadow_offset, size//2, size//4))
+        pygame.draw.ellipse(screen, (30, 30, 30), (x - size//3 + shadow_offset, y - size//4 + shadow_offset, size*2//3, size//2))
+        
         # Base
-        pygame.draw.rect(screen, color, (x - size//4, y + size//4, size//2, size//4))
+        pygame.draw.rect(screen, (139, 69, 19), (x - size//4, y + size//4, size//2, size//4))
+        pygame.draw.rect(screen, (160, 82, 45), (x - size//6, y + size//3, size//3, size//6))
+        
         # Coupe
         pygame.draw.ellipse(screen, color, (x - size//3, y - size//4, size*2//3, size//2))
+        pygame.draw.ellipse(screen, (255, 215, 0), (x - size//3, y - size//4, size*2//3, size//2), 3)
+        
+        # Reflet
+        pygame.draw.ellipse(screen, (255, 255, 255), (x - size//4, y - size//3, size//2, size//4))
+        
         # Anses
-        pygame.draw.arc(screen, color, (x - size//2, y - size//4, size//2, size//2), 0, 3.14, 3)
-        pygame.draw.arc(screen, color, (x, y - size//4, size//2, size//2), 0, 3.14, 3)
+        pygame.draw.arc(screen, (255, 215, 0), (x - size//2, y - size//4, size//2, size//2), 0, 3.14, 4)
+        pygame.draw.arc(screen, (255, 215, 0), (x, y - size//4, size//2, size//2), 0, 3.14, 4)
+
+class UnicodeIcons:
+    """Classe pour gérer les icônes Unicode si disponibles"""
+    
+    # Dictionnaire des icônes Unicode
+    ICONS = {
+        'heart': '♥',
+        'sword': '⚔',
+        'shield': '🛡',
+        'crown': '👑',
+        'skull': '☠',
+        'plus': '✚',
+        'exclamation': '❗',
+        'castle': '🏰',
+        'trophy': '🏆',
+        'star': '★',
+        'diamond': '♦',
+        'spade': '♠',
+        'club': '♣'
+    }
+    
+    @staticmethod
+    def get_icon(icon_name: str) -> str:
+        """Retourne l'icône Unicode si disponible, sinon retourne un caractère de fallback"""
+        return UnicodeIcons.ICONS.get(icon_name, '●')
+    
+    @staticmethod
+    def draw_icon_text(screen, x: int, y: int, icon_name: str, text: str, 
+                      font: pygame.font.Font, color: Tuple[int, int, int] = WHITE):
+        """Dessine une icône Unicode avec du texte"""
+        try:
+            # Essayer d'utiliser une police qui supporte Unicode
+            unicode_font = pygame.font.Font(None, font.get_height())
+            icon = UnicodeIcons.get_icon(icon_name)
+            
+            # Dessiner l'icône
+            icon_surface = unicode_font.render(icon, True, color)
+            screen.blit(icon_surface, (x, y))
+            
+            # Dessiner le texte à côté
+            text_surface = font.render(text, True, color)
+            screen.blit(text_surface, (x + 25, y))
+            
+        except:
+            # Fallback vers les icônes géométriques
+            IconDrawer.draw_icon_fallback(screen, x, y, icon_name, 20, color)
+
+class IconDrawer:
+    """Classe pour dessiner des icônes visuelles avec des formes géométriques améliorées"""
+    
+    @staticmethod
+    def draw_icon_fallback(screen, x: int, y: int, icon_name: str, size: int, color: Tuple[int, int, int]):
+        """Dessine une icône de fallback si Unicode n'est pas disponible"""
+        if icon_name == 'heart':
+            IconDrawer.draw_heart(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'sword':
+            IconDrawer.draw_sword(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'shield':
+            IconDrawer.draw_shield(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'crown':
+            IconDrawer.draw_crown(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'skull':
+            IconDrawer.draw_skull(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'plus':
+            IconDrawer.draw_plus(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'exclamation':
+            IconDrawer.draw_exclamation(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'castle':
+            IconDrawer.draw_castle(screen, x + size//2, y + size//2, size, color)
+        elif icon_name == 'trophy':
+            IconDrawer.draw_trophy(screen, x + size//2, y + size//2, size, color)
+    
+    @staticmethod
+    def draw_heart(screen, x, y, size, color):
+        """Dessine un cœur avec dégradé et ombre"""
+        # Ombre
+        shadow_offset = 2
+        pygame.draw.circle(screen, (50, 0, 0), (x - size//4 + shadow_offset, y - size//4 + shadow_offset), size//4)
+        pygame.draw.circle(screen, (50, 0, 0), (x + size//4 + shadow_offset, y - size//4 + shadow_offset), size//4)
+        shadow_points = [(x + shadow_offset, y + size//2 + shadow_offset), 
+                        (x - size//2 + shadow_offset, y + shadow_offset), 
+                        (x + size//2 + shadow_offset, y + shadow_offset)]
+        pygame.draw.polygon(screen, (50, 0, 0), shadow_points)
+        
+        # Cœur principal avec dégradé
+        pygame.draw.circle(screen, color, (x - size//4, y - size//4), size//4)
+        pygame.draw.circle(screen, color, (x + size//4, y - size//4), size//4)
+        points = [(x, y + size//2), (x - size//2, y), (x + size//2, y)]
+        pygame.draw.polygon(screen, color, points)
+        
+        # Reflet
+        pygame.draw.circle(screen, (255, 200, 200), (x - size//6, y - size//3), size//8)
+        pygame.draw.circle(screen, (255, 200, 200), (x + size//6, y - size//3), size//8)
 
 class IconTextSprite:
     """Sprite qui combine une icône visuelle et du texte"""
@@ -649,40 +1150,75 @@ class IconTextSprite:
         if not self.visible:
             return
         
-        # Dessiner l'icône
-        icon_x = self.x
-        icon_y = self.y + 10  # Centrer verticalement avec le texte
-        
-        if self.icon_type == "heart":
-            IconDrawer.draw_heart(screen, icon_x, icon_y, self.icon_size, RED)
-        elif self.icon_type == "sword":
-            IconDrawer.draw_sword(screen, icon_x, icon_y, self.icon_size, GRAY)
-        elif self.icon_type == "shield":
-            IconDrawer.draw_shield(screen, icon_x, icon_y, self.icon_size, BLUE)
-        elif self.icon_type == "crown":
-            IconDrawer.draw_crown(screen, icon_x, icon_y, self.icon_size, YELLOW)
-        elif self.icon_type == "skull":
-            IconDrawer.draw_skull(screen, icon_x, icon_y, self.icon_size, WHITE)
-        elif self.icon_type == "plus":
-            IconDrawer.draw_plus(screen, icon_x, icon_y, self.icon_size, GREEN)
-        elif self.icon_type == "exclamation":
-            IconDrawer.draw_exclamation(screen, icon_x, icon_y, self.icon_size, YELLOW)
-        elif self.icon_type == "castle":
-            IconDrawer.draw_castle(screen, icon_x, icon_y, self.icon_size, GRAY)
-        elif self.icon_type == "trophy":
-            IconDrawer.draw_trophy(screen, icon_x, icon_y, self.icon_size, YELLOW)
-        
-        # Dessiner le texte à côté de l'icône
-        text_x = self.x + 30  # Espacement après l'icône
-        text_surface = self.font.render(self.text, True, self.color)
-        
-        # Ombre
-        if self.shadow:
-            shadow_surface = self.font.render(self.text, True, BLACK)
-            screen.blit(shadow_surface, (text_x + 2, self.y + 2))
-        
-        # Texte principal
-        screen.blit(text_surface, (text_x, self.y))
+        # Essayer d'abord les icônes Unicode
+        try:
+            unicode_font = pygame.font.Font(None, self.font.get_height())
+            icon = UnicodeIcons.get_icon(self.icon_type)
+            icon_surface = unicode_font.render(icon, True, self.color)
+            screen.blit(icon_surface, (self.x, self.y))
+            
+            # Dessiner le texte à côté
+            text_x = self.x + 25
+            text_surface = self.font.render(self.text, True, self.color)
+            
+            # Ombre
+            if self.shadow:
+                shadow_surface = self.font.render(self.text, True, BLACK)
+                screen.blit(shadow_surface, (text_x + 2, self.y + 2))
+            
+            # Texte principal
+            screen.blit(text_surface, (text_x, self.y))
+            
+        except:
+            # Fallback vers les icônes géométriques améliorées
+            icon_x = self.x
+            icon_y = self.y + 10  # Centrer verticalement avec le texte
+            
+            # Couleurs spécifiques pour chaque icône
+            colors = {
+                "heart": RED,
+                "sword": (200, 200, 255),
+                "shield": BLUE,
+                "crown": YELLOW,
+                "skull": WHITE,
+                "plus": GREEN,
+                "exclamation": YELLOW,
+                "castle": GRAY,
+                "trophy": YELLOW
+            }
+            
+            color = colors.get(self.icon_type, self.color)
+            
+            if self.icon_type == "heart":
+                IconDrawer.draw_heart(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "sword":
+                IconDrawer.draw_sword(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "shield":
+                IconDrawer.draw_shield(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "crown":
+                IconDrawer.draw_crown(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "skull":
+                IconDrawer.draw_skull(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "plus":
+                IconDrawer.draw_plus(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "exclamation":
+                IconDrawer.draw_exclamation(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "castle":
+                IconDrawer.draw_castle(screen, icon_x, icon_y, self.icon_size, color)
+            elif self.icon_type == "trophy":
+                IconDrawer.draw_trophy(screen, icon_x, icon_y, self.icon_size, color)
+            
+            # Dessiner le texte à côté de l'icône
+            text_x = self.x + 30  # Espacement après l'icône
+            text_surface = self.font.render(self.text, True, self.color)
+            
+            # Ombre
+            if self.shadow:
+                shadow_surface = self.font.render(self.text, True, BLACK)
+                screen.blit(shadow_surface, (text_x + 2, self.y + 2))
+            
+            # Texte principal
+            screen.blit(text_surface, (text_x, self.y))
 
 class GameState:
     """États du jeu"""
@@ -706,6 +1242,9 @@ class RoguelikeGraphiqueAvance:
         self.font_large = pygame.font.Font(None, 64)
         self.font_medium = pygame.font.Font(None, 36)
         self.font_small = pygame.font.Font(None, 24)
+        
+        # Gestionnaires
+        self.sound_manager = SoundManager()
         
         # État du jeu
         self.state = GameState.MENU
@@ -761,14 +1300,24 @@ class RoguelikeGraphiqueAvance:
         self.text_sprites.append(sword1)
         self.text_sprites.append(sword2)
         
-        # Bouton Jouer
-        play_button = Button(SCREEN_WIDTH // 2 - 120, 300, 240, 60, "COMMENCER L'AVENTURE", 
+        # Bouton Jouer (Normal)
+        play_button = Button(SCREEN_WIDTH // 2 - 120, 280, 240, 50, "NORMAL", 
                             self.font_medium, GREEN)
         self.buttons.append(play_button)
         
+        # Bouton Jouer (Difficile)
+        hard_button = Button(SCREEN_WIDTH // 2 - 120, 340, 240, 50, "DIFFICILE", 
+                            self.font_medium, ORANGE)
+        self.buttons.append(hard_button)
+        
+        # Bouton Jouer (Expert)
+        expert_button = Button(SCREEN_WIDTH // 2 - 120, 400, 240, 50, "EXPERT", 
+                              self.font_medium, RED)
+        self.buttons.append(expert_button)
+        
         # Bouton Quitter
-        quit_button = Button(SCREEN_WIDTH // 2 - 120, 400, 240, 60, "QUITTER", 
-                            self.font_medium, RED)
+        quit_button = Button(SCREEN_WIDTH // 2 - 120, 480, 240, 50, "QUITTER", 
+                            self.font_medium, GRAY)
         self.buttons.append(quit_button)
         
         # Instructions avec icônes
@@ -836,6 +1385,24 @@ class RoguelikeGraphiqueAvance:
         self.sprites.append(self.enemy_sprite)
         self.text_sprites.append(enemy_name)
         
+        # Affichage du score
+        score_text = TextSprite(50, 20, f"Score: {self.jeu.joueur.score}", 
+                               self.font_small, WHITE)
+        self.text_sprites.append(score_text)
+        
+        # Affichage de la difficulté
+        difficulte_names = {1: "Normal", 2: "Difficile", 3: "Expert"}
+        difficulte_colors = {1: GREEN, 2: ORANGE, 3: RED}
+        difficulte_text = TextSprite(50, 50, f"Difficulte: {difficulte_names[self.jeu.difficulte]}", 
+                                    self.font_small, difficulte_colors[self.jeu.difficulte])
+        self.text_sprites.append(difficulte_text)
+        
+        # Affichage des power-ups actifs
+        if self.jeu.joueur.power_ups:
+            power_up_text = TextSprite(50, 80, f"Power-ups: {len(self.jeu.joueur.power_ups)}", 
+                                      self.font_small, YELLOW)
+            self.text_sprites.append(power_up_text)
+        
         # Bouton Attaquer
         attack_button = Button(SCREEN_WIDTH // 2 - 100, 500, 200, 60, "ATTAQUER", 
                               self.font_medium, ORANGE)
@@ -886,6 +1453,13 @@ class RoguelikeGraphiqueAvance:
         elif isinstance(salle, SalleAmelioration):
             icon = IconTextSprite(SCREEN_WIDTH // 2 - 50, 300, "", self.font_large, "exclamation", YELLOW)
             message = "Vous trouvez une amelioration d'arme!"
+        elif isinstance(salle, SallePowerUp):
+            icon = IconTextSprite(SCREEN_WIDTH // 2 - 50, 300, "", self.font_large, "trophy", PURPLE)
+            message = f"Vous trouvez: {salle.power_up.nom}!"
+        else:
+            # Icône par défaut
+            icon = IconTextSprite(SCREEN_WIDTH // 2 - 50, 300, "", self.font_large, "sword", BLUE)
+            message = "Salle mystérieuse..."
         
         self.text_sprites.append(icon)
         
@@ -1001,10 +1575,10 @@ class RoguelikeGraphiqueAvance:
         
         if not ennemi.est_vivant():
             if isinstance(salle, SalleEnnemi):
-                self.jeu.joueur.ennemis_tues += 1
+                self.jeu.joueur.tuer_ennemi()
                 self.add_combat_log(f"[SKULL] Vous avez vaincu {ennemi.nom}!")
             else:
-                self.jeu.joueur.boss_vaincus += 1
+                self.jeu.joueur.vaincre_boss()
                 self.add_combat_log(f"[BOSS] Vous avez vaincu le boss {ennemi.nom}!")
             return True
         
@@ -1025,6 +1599,9 @@ class RoguelikeGraphiqueAvance:
         # Mettre à jour la barre de vie du joueur
         self.player_health_bar.update_health(self.jeu.joueur.pv_actuels)
         
+        # Ajouter des points de survie
+        self.jeu.joueur.survivre_tour()
+        
         if not self.jeu.joueur.est_vivant():
             self.add_combat_log("[SKULL] Vous etes mort! Game Over!")
             return False
@@ -1036,6 +1613,7 @@ class RoguelikeGraphiqueAvance:
         if isinstance(salle, SalleSoin):
             soin = int(self.jeu.joueur.pv_max * POURCENTAGE_SOIN)
             self.jeu.joueur.soigner(soin)
+            self.sound_manager.play_sound('heal')
             message = f"Vous récupérez {soin} PV!"
             
             # Effet de particules de soin
@@ -1047,6 +1625,7 @@ class RoguelikeGraphiqueAvance:
         elif isinstance(salle, SalleAmelioration):
             bonus = random.randint(BONUS_ATTAQUE_MIN, BONUS_ATTAQUE_MAX)
             self.jeu.joueur.augmenter_attaque(bonus)
+            self.sound_manager.play_sound('upgrade')
             message = f"Votre attaque augmente de {bonus}!"
             
             # Effet de particules d'amélioration
@@ -1054,6 +1633,16 @@ class RoguelikeGraphiqueAvance:
                 self.particles.add_particle(
                     SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2,
                     YELLOW, (random.uniform(-4, 4), random.uniform(-4, 4)), 2000
+                )
+        elif isinstance(salle, SallePowerUp):
+            self.sound_manager.play_sound('upgrade')
+            message = f"Vous obtenez: {salle.power_up.nom}!"
+            
+            # Effet de particules de power-up
+            for i in range(25):
+                self.particles.add_particle(
+                    SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2,
+                    PURPLE, (random.uniform(-5, 5), random.uniform(-5, 5)), 2500
                 )
         
         # Afficher le message
@@ -1119,27 +1708,37 @@ class RoguelikeGraphiqueAvance:
             for button in self.buttons:
                 if button.handle_event(event):
                     if self.state == GameState.MENU:
-                        if "AVENTURE" in button.text:
-                            self.state = GameState.PLAYING
-                            self.jeu = Jeu()
-                            self.jeu.salles_max = 5
+                        if button.text == "NORMAL":
+                            self.sound_manager.play_sound('click')
+                            self.reset_game(1)
+                        elif button.text == "DIFFICILE":
+                            self.sound_manager.play_sound('click')
+                            self.reset_game(2)
+                        elif button.text == "EXPERT":
+                            self.sound_manager.play_sound('click')
+                            self.reset_game(3)
                         elif button.text == "QUITTER":
+                            self.sound_manager.play_sound('click')
                             return False
                     
                     elif self.state == GameState.COMBAT:
                         if "ATTAQUER" in button.text:
+                            self.sound_manager.play_sound('attack')
                             if not self.handle_combat(self.salle_actuelle):
+                                self.sound_manager.play_sound('defeat')
                                 self.setup_game_over()
                                 self.state = GameState.GAME_OVER
                             else:
                                 # Vérifier si l'ennemi est mort
                                 if isinstance(self.salle_actuelle, SalleEnnemi):
                                     if not self.salle_actuelle.ennemi.est_vivant():
+                                        self.sound_manager.play_sound('victory')
                                         # Afficher l'écran de victoire
                                         self.setup_transition(True, self.salle_actuelle.ennemi.nom, False)
                                         self.state = GameState.TRANSITION
                                 elif isinstance(self.salle_actuelle, SalleBoss):
                                     if not self.salle_actuelle.boss.est_vivant():
+                                        self.sound_manager.play_sound('victory')
                                         # Afficher l'écran de victoire
                                         self.setup_transition(True, self.salle_actuelle.boss.nom, True)
                                         self.state = GameState.TRANSITION
@@ -1161,11 +1760,13 @@ class RoguelikeGraphiqueAvance:
                     
                     elif self.state in [GameState.GAME_OVER, GameState.VICTORY]:
                         if "REJOUER" in button.text:
-                            self.state = GameState.PLAYING
-                            self.jeu = Jeu()
-                            self.jeu.salles_max = 5
-                            self.salle_actuelle = None
+                            self.sound_manager.play_sound('click')
+                            # Réinitialiser le jeu avec la même difficulté
+                            difficulte_actuelle = self.jeu.difficulte
+                            self.reset_game(difficulte_actuelle)
                         elif "MENU" in button.text:
+                            self.sound_manager.play_sound('click')
+                            # Retourner au menu principal
                             self.state = GameState.MENU
                             self.setup_menu()
                         elif "CONTINUER" in button.text:
@@ -1174,6 +1775,33 @@ class RoguelikeGraphiqueAvance:
                             self.state = GameState.PLAYING
         
         return True
+    
+    def reset_game(self, difficulte: int = 1):
+        """Réinitialise complètement le jeu"""
+        # Réinitialiser le jeu
+        self.jeu = Jeu(difficulte)
+        
+        # Définir le nombre de salles selon la difficulté
+        if difficulte == 1:
+            self.jeu.salles_max = 5
+        elif difficulte == 2:
+            self.jeu.salles_max = 7
+        elif difficulte == 3:
+            self.jeu.salles_max = 10
+        
+        # Réinitialiser l'état
+        self.salle_actuelle = None
+        self.state = GameState.PLAYING
+        
+        # Réinitialiser les sprites et boutons
+        self.sprites.clear()
+        self.text_sprites.clear()
+        self.buttons.clear()
+        self.combat_log.clear()
+        
+        # Réinitialiser les barres de vie
+        self.player_health_bar = None
+        self.enemy_health_bar = None
     
     def update(self, dt: int):
         """Met à jour la logique du jeu"""
@@ -1194,6 +1822,7 @@ class RoguelikeGraphiqueAvance:
             # Générer une nouvelle salle si nécessaire
             if self.salle_actuelle is None:
                 self.salle_actuelle = self.jeu.generateur_salles.generer_salle()
+                self.jeu.joueur.traverser_salle()  # Ajouter des points pour traverser une salle
                 
                 if isinstance(self.salle_actuelle, (SalleEnnemi, SalleBoss)):
                     self.state = GameState.COMBAT
