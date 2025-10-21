@@ -1,190 +1,289 @@
-# Roguelike Graphique Avancé
+# 🎮 Roguelike Graphique Avancé - Architecture SOLID
 
-Un jeu roguelike en Python avec Pygame, entièrement graphique et interactif avec de nombreuses améliorations dynamiques.
+Un jeu roguelike complet avec interface graphique, respectant les principes SOLID, avec système de sons, power-ups, scores et niveaux de difficulté.
 
-## 🎮 Fonctionnalités
+## 🏗️ Architecture SOLID
+
+Ce projet implémente une architecture respectant les principes SOLID :
+
+- **S** - Single Responsibility Principle
+- **O** - Open/Closed Principle  
+- **L** - Liskov Substitution Principle
+- **I** - Interface Segregation Principle
+- **D** - Dependency Inversion Principle
+
+### 📁 Structure Modulaire
+
+```
+jeu/
+├── roguelike_graphique_avance.py  # Jeu principal (version graphique)
+├── interfaces.py                   # Interfaces et contrats SOLID
+├── entities.py                     # Entités du jeu (SRP)
+├── services.py                     # Services et managers (DIP)
+├── test_roguelike.py              # Tests unitaires du code original
+├── test_solid.py                  # Tests unitaires SOLID
+├── run_tests.py                   # Script d'exécution des tests
+├── test_config.py                 # Configuration des tests
+├── ARCHITECTURE_SOLID.md          # Documentation architecture
+└── README.md                      # Cette documentation
+```
+
+## 🚀 Fonctionnalités
 
 ### 🎯 Gameplay
-- **Interface graphique complète** avec Pygame
-- **3 niveaux de difficulté** : Normal, Difficile, Expert
-- **Système de score** avec high scores sauvegardés
-- **Power-ups et objets spéciaux** pour améliorer le joueur
-- **Salles variées** : ennemis, boss, soin, amélioration, power-ups
-- **Système de progression** adaptatif selon la difficulté
+- **Combat au tour par tour** : Le joueur attaque toujours en premier
+- **5 types de salles** : Ennemis, Boss, Soin, Amélioration, Power-Up
+- **Système de progression** : Score, ennemis tués, boss vaincus
+- **3 niveaux de difficulté** : Normal (5 salles), Difficile (7 salles), Expert (10 salles)
 
-### 🎨 Visuel et Audio
-- **Sprites animés** pour le joueur et les ennemis
-- **Icônes visuelles** dessinées avec des formes géométriques
-- **Effets de particules** améliorés pour chaque action
-- **Sons synthétiques** pour toutes les interactions
-- **Transitions fluides** entre les salles
-- **Interface utilisateur** intuitive avec boutons et menus
+### 🎨 Interface Graphique
+- **Design moderne** avec icônes géométriques
+- **Barres de vie animées** pour le joueur et les ennemis
+- **Écrans de transition** entre les salles
+- **Interface intuitive** avec boutons cliquables
+
+### 🔊 Système Audio
+- **Sons synthétiques** pour tous les événements
+- **Effets sonores** : Attaque, victoire, défaite, soin, amélioration
+- **Mélodie de victoire** pour les boss
+- **Contrôle du volume** intégré
+
+### ⚡ Power-Ups
+- **Potion de Force** : Augmente l'attaque
+- **Potion de Soin** : Restaure les PV
+- **Armure Magique** : Augmente la défense
+- **Bottes de Vitesse** : Augmente la vitesse
 
 ### 🏆 Système de Score
-- **Points pour chaque action** : tuer ennemis, survivre, traverser salles
+- **Score en temps réel** affiché pendant le jeu
 - **High scores** sauvegardés automatiquement
-- **Statistiques détaillées** : ennemis tués, boss vaincus, salles traversées
-- **Power-ups** avec bonus de score
+- **Statistiques détaillées** : Ennemis tués, boss vaincus, salles traversées
+- **Bonus de score** pour différentes actions
 
-## 🚀 Installation
+### 🎲 Génération Procédurale
+- **Salles aléatoires** avec probabilités équilibrées
+- **Évite les salles spéciales consécutives** pour un gameplay équilibré
+- **Ennemis et boss** avec stats adaptées à la difficulté
 
+## 🧪 Tests Unitaires
+
+### Couverture Complète
+- **50 tests unitaires** couvrant tous les aspects
+- **Tests de conformité SOLID** pour chaque principe
+- **Tests d'intégration** pour les interactions
+- **Tests de régression** pour la stabilité
+
+### Exécution des Tests
+```bash
+# Exécuter tous les tests
+python3 run_tests.py
+
+# Exécuter les tests SOLID uniquement
+python3 test_solid.py
+
+# Exécuter les tests originaux uniquement
+python3 test_roguelike.py
+```
+
+### Résultats des Tests
+```
+Tests exécutés: 50
+Échecs: 0
+Erreurs: 0
+Succès: 50
+
+🎉 TOUS LES TESTS SONT PASSÉS!
+```
+
+## 🎮 Comment Jouer
+
+1. **Lancez le jeu** : `python3 roguelike_graphique_avance.py`
+2. **Choisissez la difficulté** : Normal, Difficile, ou Expert
+3. **Explorez les salles** et combattez les ennemis
+4. **Utilisez les salles spéciales** pour vous soigner et vous améliorer
+5. **Vainquez les boss** pour progresser
+6. **Atteignez la fin** pour voir votre score final
+
+## 🎯 Types de Salles
+
+### ⚔️ Salle d'Ennemi
+- **Ennemis variés** : Gobelin, Orc, Squelette, Loup, Araignée
+- **Combat au tour par tour** avec le joueur qui attaque en premier
+- **Score** : 100 points par ennemi tué
+
+### 👑 Salle de Boss
+- **Boss puissants** : Dragon, Liche, Démon, Géant, Hydre
+- **Stats augmentées** selon la difficulté
+- **Score** : 500 points par boss vaincu
+
+### ❤️ Salle de Soin
+- **Restaure 15%** des PV maximum
+- **Pas de combat** requis
+- **Score** : 50 points pour traverser
+
+### ⚡ Salle d'Amélioration
+- **Augmente l'attaque** de 3 à 8 points
+- **Amélioration permanente**
+- **Score** : 50 points pour traverser
+
+### 🎁 Salle de Power-Up
+- **Power-up aléatoire** avec effet temporaire ou permanent
+- **Effets variés** : Attaque, défense, soin, vitesse
+- **Score** : 200 points pour trouver un power-up
+
+## 🏆 Système de Score
+
+### Points Attribués
+- **Ennemi tué** : 100 points
+- **Boss vaincu** : 500 points
+- **Survie d'un tour** : 10 points
+- **Salle traversée** : 50 points
+- **Power-up trouvé** : 200 points
+
+### High Scores
+- **Sauvegarde automatique** des 10 meilleurs scores
+- **Affichage** du nom, score, salles, ennemis et boss
+- **Fichier** : `high_scores.json`
+
+## 🎚️ Niveaux de Difficulté
+
+### 🟢 Normal
+- **5 salles** à traverser
+- **Ennemis** : Stats de base
+- **Boss** : Stats de base
+- **Idéal pour** : Débutants
+
+### 🟠 Difficile
+- **7 salles** à traverser
+- **Ennemis** : +50% PV, +30% attaque
+- **Boss** : +70% PV, +50% attaque
+- **Idéal pour** : Joueurs expérimentés
+
+### 🔴 Expert
+- **10 salles** à traverser
+- **Ennemis** : +100% PV, +60% attaque
+- **Boss** : +140% PV, +100% attaque
+- **Idéal pour** : Experts
+
+## 🛠️ Installation
+
+### Prérequis
+- Python 3.7+
+- Pygame 2.0+
+
+### Installation
 ```bash
 # Cloner le projet
-git clone <votre-repo>
+git clone <repository>
 cd jeu
 
 # Installer les dépendances
-pip install -r requirements.txt
+pip install pygame
 
 # Lancer le jeu
 python3 roguelike_graphique_avance.py
 ```
 
-## 🎯 Comment jouer
+## 🏗️ Architecture SOLID
 
-1. **Menu principal** : Choisissez votre niveau de difficulté
-   - **Normal** : 5 salles, ennemis standard
-   - **Difficile** : 7 salles, ennemis plus forts
-   - **Expert** : 10 salles, ennemis très puissants
+### Single Responsibility Principle (SRP)
+Chaque classe a une seule responsabilité :
+- `Character` : Stats de base
+- `Player` : Stats du joueur
+- `ScoreManager` : Gestion des scores
+- `RoomGenerator` : Génération de salles
 
-2. **Combat** : Cliquez sur "ATTAQUER" pour combattre
-3. **Salles spéciales** : Cliquez sur "CONTINUER L'AVENTURE" pour progresser
-4. **Power-ups** : Collectez des objets pour vous renforcer
-5. **Objectif** : Survivez à toutes les salles pour gagner !
+### Open/Closed Principle (OCP)
+Le code est ouvert à l'extension, fermé à la modification :
+```python
+class MagicCharacter(Character):
+    def lancer_sort(self, cible):
+        # Extension sans modification de Character
+```
 
-## 🏗️ Architecture
+### Liskov Substitution Principle (LSP)
+Toutes les sous-classes sont substituables :
+```python
+characters = [Character(), Player(), Enemy(), Boss()]
+for char in characters:
+    char.attaquer(target)  # Tous fonctionnent
+```
 
-### Classes principales
+### Interface Segregation Principle (ISP)
+Interfaces spécifiques et cohérentes :
+- `ICharacter` : Interface de base
+- `IPlayer` : Interface spécifique au joueur
+- `IRoom` : Interface de base pour les salles
 
-- **`RoguelikeGraphiqueAvance`** : Classe principale du jeu
-- **`Jeu`** : Logique métier du jeu avec système de difficulté
-- **`Joueur`** : Personnage avec système de score et power-ups
-- **`Ennemi`** / **`Boss`** : Adversaires adaptés à la difficulté
-- **`Salle`** : Différents types de salles
-- **`GenerateurSalles`** : Génération aléatoire des salles
-
-### Système de sprites et effets
-
-- **`AnimatedSprite`** : Sprites avec animations
-- **`TextSprite`** : Affichage de texte
-- **`IconTextSprite`** : Texte avec icônes visuelles
-- **`Button`** : Boutons interactifs
-- **`HealthBar`** : Barres de vie
-- **`ParticleSystem`** : Système de particules
-- **`SoundManager`** : Gestionnaire de sons synthétiques
-
-### Systèmes avancés
-
-- **`PowerUp`** : Objets spéciaux avec effets
-- **`ScoreManager`** : Gestion des scores et high scores
-- **`IconDrawer`** : Dessin d'icônes géométriques
+### Dependency Inversion Principle (DIP)
+Dépendance des abstractions, pas des implémentations :
+```python
+class GameService:
+    def __init__(self, factory: IGameFactory):
+        self._factory = factory  # Dépend de l'abstraction
+```
 
 ## 🎨 Personnalisation
 
-### Modifier les statistiques
-
-```python
-# Dans le fichier principal
-JOUEUR_PV_MAX = 100
-JOUEUR_ATTAQUE = 20
-ENNEMI_PV_MAX = 30
-ENNEMI_ATTAQUE = 15
-BOSS_PV_MAX = 80
-BOSS_ATTAQUE = 25
-
-# Système de score
-SCORE_ENNEMI = 100
-SCORE_BOSS = 500
-SCORE_SALLE = 50
-SCORE_SURVIE = 10
-```
-
-### Ajouter de nouveaux power-ups
-
-```python
-class PowerUp:
-    def __init__(self, nom, effet, duree, valeur):
-        self.nom = nom
-        self.effet = effet  # 'attaque', 'defense', 'vitesse', 'regeneration'
-        self.duree = duree
-        self.valeur = valeur
-```
-
-### Modifier les probabilités
-
+### Modifier les Probabilités des Salles
 ```python
 PROBABILITES_SALLES = {
     'ennemi': 0.5,      # 50% de chance
     'boss': 0.2,        # 20% de chance
     'soin': 0.1,        # 10% de chance
-    'amelioration': 0.1,  # 10% de chance
+    'amelioration': 0.1, # 10% de chance
     'powerup': 0.1      # 10% de chance
 }
 ```
 
-## 🎵 Système Audio
+### Ajouter de Nouveaux Ennemis
+```python
+NOMS_ENNEMIS = ["Gobelin", "Orc", "Squelette", "Loup", "Araignée", "VotreEnnemi"]
+```
 
-Le jeu utilise des sons synthétiques générés en temps réel :
-- **Attaque** : Son d'épée
-- **Victoire** : Mélodie de victoire
-- **Défaite** : Son grave
-- **Soin** : Son apaisant
-- **Amélioration** : Son de power-up
-- **Clic** : Son d'interface
-
-## 🏆 Système de Score
-
-### Points attribués
-- **Ennemi tué** : 100 points
-- **Boss vaincu** : 500 points
-- **Salle traversée** : 50 points
-- **Tour de survie** : 10 points
-- **Power-up trouvé** : 200 points
-
-### High Scores
-- Sauvegarde automatique dans `high_scores.json`
-- Top 10 des meilleurs scores
-- Statistiques détaillées par partie
+### Modifier les Stats
+```python
+JOUEUR_PV_MAX = 100
+JOUEUR_ATTAQUE = 20
+ENNEMI_PV_MAX = 30
+ENNEMI_ATTAQUE = 15
+```
 
 ## 🐛 Dépannage
 
-### Problèmes courants
+### Problèmes Courants
+1. **Erreur de couleur** : Vérifiez que Pygame est correctement installé
+2. **Sons qui ne marchent pas** : Le jeu fonctionne sans sons si l'audio n'est pas disponible
+3. **Fichier de scores** : Créé automatiquement au premier lancement
 
-1. **Erreur de module** : Vérifiez que Pygame est installé
-2. **Fenêtre ne s'ouvre pas** : Vérifiez les permissions d'affichage
-3. **Performance lente** : Réduisez le nombre de particules
-4. **Sons ne fonctionnent pas** : Vérifiez les paramètres audio
+### Support
+- Vérifiez que Python 3.7+ est installé
+- Vérifiez que Pygame 2.0+ est installé
+- Consultez les logs d'erreur pour plus de détails
 
-### Logs de débogage
+## 🎉 Améliorations Futures
 
-Le jeu affiche des informations dans la console pour le débogage.
+- [ ] **Système d'inventaire** avec objets collectibles
+- [ ] **Classes de personnages** (Guerrier, Mage, Archer)
+- [ ] **Système de magie** avec sorts et mana
+- [ ] **Salles secrètes** et événements spéciaux
+- [ ] **Système de guildes** et classements
+- [ ] **Mode multijoueur** local
+- [ ] **Éditeur de niveaux** intégré
+- [ ] **Système de sauvegarde** de progression
 
-## 📝 Licence
+## 📄 Licence
 
-Ce projet est sous licence MIT. Libre d'utilisation et de modification.
+Ce projet est sous licence MIT. Voir le fichier LICENSE pour plus de détails.
 
 ## 🤝 Contribution
 
 Les contributions sont les bienvenues ! N'hésitez pas à :
 - Signaler des bugs
-- Proposer des améliorations
-- Ajouter de nouvelles fonctionnalités
-- Créer de nouveaux power-ups
-- Améliorer les effets visuels
+- Proposer de nouvelles fonctionnalités
+- Améliorer le code existant
+- Ajouter de nouveaux tests
 
-## 📞 Support
+## 🎮 Amusez-vous bien !
 
-Pour toute question ou problème, ouvrez une issue sur GitHub.
-
-## 🎉 Améliorations Récentes
-
-- ✅ Système de sons synthétiques
-- ✅ Power-ups et objets spéciaux
-- ✅ Système de score et high scores
-- ✅ Effets de particules améliorés
-- ✅ Interface plus interactive
-- ✅ Sauvegarde automatique des scores
-- ✅ 3 niveaux de difficulté
-- ✅ Ennemis et boss adaptés à la difficulté
-- ✅ Icônes visuelles géométriques
-- ✅ Plus de salles selon la difficulté
+Profitez de ce roguelike complet avec architecture SOLID, tests unitaires et toutes ses fonctionnalités avancées. Que la chance soit avec vous dans vos aventures !
